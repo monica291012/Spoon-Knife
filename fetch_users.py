@@ -1,25 +1,84 @@
-
-import requests
+import argparse
 import csv
+import sys
+import requests
 
 API_URL = "https://jsonplaceholder.typicode.com/users"
 
 
-def fetch_users():
-    try:
-        # Step 1: Send HTTP GET request
-        response = requests.get(API_URL, timeout=10)
+def parse_arguments():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Fetch user data from a third-party REST API"
+    )
 
-        # Step 2: Check for HTTP errors
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of users to retrieve (positive integer)"
+    )
+
+    args = parser.parse_args()
+
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be a positive integer")
+
+    return args
+
+
+def fetch_users(limit=None):
+    """Fetch users from the external API."""
+    try:
+        response = requests.get(API_URL, timeout=10)
         response.raise_for_status()
 
-        # Step 3: Convert JSON response to Python data
         users = response.json()
 
         if not isinstance(users, list):
             raise ValueError("Expected a list of users")
 
-        # Step 4: Print user information
+        if limit is not None:
+            users = users[:limit]
+
+        return users
+
+    except requests.exceptions.Timeout:
+        print("Error: API request timed out.", file=sys.stderr)
+
+    except requests.exceptions.RequestException as error:
+        print(f"API request failed: {error}", file=sys.stderr)
+
+    except ValueError as error:
+        print(f"Invalid API response: {error}", file=sys.stderr)
+
+    return None
+
+
+def save_to_csv(users, filename="users.csv"):
+    """Save user information to a CSV file."""
+    with open(filename, "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["id", "name", "email", "company"])
+
+        for user in users:
+            writer.writerow([
+                user["id"],
+                user["name"],
+                user["email"],
+                user["company"]["name"]
+            ])
+
+
+def main():
+    args = parse_arguments()
+
+    users = fetch_users(limit=args.limit)
+
+    if users is None:
+        return 1
+
+    try:
         print("Users retrieved from API:")
 
         for user in users:
@@ -29,40 +88,20 @@ def fetch_users():
                 f"Email: {user['email']}"
             )
 
-        # Step 5: Save results to CSV
-        with open("users.csv", "w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
+        save_to_csv(users)
 
-            # Write CSV header
-            writer.writerow(["id", "name", "email", "company"])
-
-            # Write user records
-            for user in users:
-                writer.writerow([
-                    user["id"],
-                    user["name"],
-                    user["email"],
-                    user["company"]["name"]
-                ])
-
-        print(f"\nSuccessfully fetched {len(users)} users.")
-        print("Data saved to users.csv")
-
-    except requests.exceptions.Timeout:
-        print("Error: API request timed out.")
-
-    except requests.exceptions.HTTPError as error:
-        print(f"HTTP error: {error}")
-
-    except requests.exceptions.RequestException as error:
-        print(f"Network error: {error}")
-
-    except (ValueError, KeyError, TypeError) as error:
-        print(f"Data processing error: {error}")
+    except (KeyError, TypeError, ValueError) as error:
+        print(f"Invalid user data: {error}", file=sys.stderr)
+        return 1
 
     except OSError as error:
-        print(f"File error: {error}")
+        print(f"Failed to write CSV: {error}", file=sys.stderr)
+        return 1
+
+    print(f"\nSuccessfully fetched {len(users)} users.")
+    print("Data saved to users.csv")
+    return 0
 
 
 if __name__ == "__main__":
-    fetch_users()
+    sys.exit(main())
